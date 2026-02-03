@@ -2,20 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Chess: The Brainless Edition</title>
+    <title>Chess</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a1a; color: #eee; text-align: center; padding: 20px; }
         #board { width: 400px; margin: 0 auto; border: 4px solid #333; border-radius: 4px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
         .stats { margin: 15px; font-size: 1.5rem; color: #00ffcc; font-weight: bold; }
-        .controls { margin-top: 20px; padding: 20px; background: #2a2a2a; display: inline-block; border-radius: 12px; }
+        .controls { margin-top: 20px; padding: 20px; background: #2a2a2a; display: inline-block; border-radius: 12px; border: 1px solid #444; }
         select, button { padding: 12px; border-radius: 6px; border: none; font-size: 14px; cursor: pointer; background: #444; color: #fff; }
         button { background: #007bff; font-weight: bold; margin-left: 10px; }
+        button:hover { background: #0056b3; }
+        label { font-weight: bold; margin-right: 5px; }
     </style>
 </head>
 <body>
 
-    <h2>Chess vs. The Fish</h2>
+    <h1>Chess</h1>
     <div class="stats">Material Score: <span id="score">0</span></div>
     <div id="board"></div>
 
@@ -23,9 +25,9 @@
         <label>Rank: </label>
         <select id="difficulty">
             <option value="brainless">🤪 Brainless (100% Random)</option>
-            <option value="blunderfish">🐟 Blunderfish (90% Chaos)</option>
-            <option value="beginner">🐣 Beginner (75% Temp)</option>
-            <option value="intermediate">📊 Intermediate (40% Temp)</option>
+            <option value="blunderfish">🐟 Blunderfish (Tries to Lose)</option>
+            <option value="beginner">🐣 Beginner (High Temp)</option>
+            <option value="intermediate">📊 Intermediate (Mid Temp)</option>
             <option value="master">🏆 Master (Full Brain)</option>
         </select>
         <button onclick="resetGame()">New Game</button>
@@ -40,7 +42,6 @@
         var game = new Chess();
         const weights = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 900 };
         
-        // Center-valuing table: Higher points for middle squares
         const centerBonus = [
             [0, 0, 0, 0, 0, 0, 0, 0],
             [0, 1, 1, 1, 1, 1, 1, 0],
@@ -59,7 +60,7 @@
                     let piece = currentBoard[i][j];
                     if (piece) {
                         let val = weights[piece.type];
-                        let bonus = centerBonus[i][j] * 0.1; // Small push to the center
+                        let bonus = centerBonus[i][j] * 0.1;
                         let score = val + bonus;
                         total += (piece.color === 'b' ? score : -score);
                     }
@@ -69,25 +70,38 @@
         }
 
         function makeEngineMove() {
-            var possibleMoves = game.moves();
+            var moves = game.moves();
             if (game.game_over()) return alert("Game Over!");
 
             var rank = $('#difficulty').val();
-            var settings = { 'blunderfish': 0.9, 'beginner': 0.75, 'intermediate': 0.4, 'master': 0.0 };
-            
-            if (rank === 'brainless' || Math.random() < settings[rank]) {
-                var randomIdx = Math.floor(Math.random() * possibleMoves.length);
-                game.move(possibleMoves[randomIdx]);
-            } else {
-                let bestMove = null;
-                let bestValue = -9999;
-                possibleMoves.forEach(m => {
+
+            if (rank === 'brainless') {
+                game.move(moves[Math.floor(Math.random() * moves.length)]);
+            } 
+            else if (rank === 'blunderfish') {
+                let worstMove = null, worstVal = 9999;
+                moves.forEach(m => {
                     game.move(m);
                     let val = evaluateBoard(game.board());
                     game.undo();
-                    if (val > bestValue) { bestValue = val; bestMove = m; }
+                    if (val < worstVal) { worstVal = val; worstMove = m; }
                 });
-                game.move(bestMove || possibleMoves[0]);
+                game.move(worstMove || moves[0]);
+            } 
+            else {
+                var temps = { 'beginner': 0.75, 'intermediate': 0.4, 'master': 0.0 };
+                if (Math.random() < temps[rank]) {
+                    game.move(moves[Math.floor(Math.random() * moves.length)]);
+                } else {
+                    let bestMove = null, bestVal = -9999;
+                    moves.forEach(m => {
+                        game.move(m);
+                        let val = evaluateBoard(game.board());
+                        game.undo();
+                        if (val > bestVal) { bestVal = val; bestMove = m; }
+                    });
+                    game.move(bestMove || moves[0]);
+                }
             }
             board.position(game.fen());
             $('#score').text((-evaluateBoard(game.board())).toFixed(1));
@@ -100,7 +114,12 @@
         }
 
         function resetGame() { game.reset(); board.start(); $('#score').text('0'); }
-        board = Chessboard('board', { draggable: true, position: 'start', onDrop: onDrop });
+        
+        board = Chessboard('board', {
+            draggable: true,
+            position: 'start',
+            onDrop: onDrop
+        });
     </script>
 </body>
 </html>
