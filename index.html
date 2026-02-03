@@ -72,7 +72,6 @@
         function makeEngineMove() {
             var moves = game.moves();
             if (game.game_over()) return alert("Game Over!");
-
             var rank = $('#difficulty').val();
 
             if (rank === 'brainless') {
@@ -113,13 +112,25 @@
             window.setTimeout(makeEngineMove, 250);
         }
 
-        function resetGame() { game.reset(); board.start(); $('#score').text('0'); }
+        // Ensures castling and en passant update the board correctly
+        function onSnapEnd() {
+            board.position(game.fen());
+        }
+
+        function resetGame() { 
+            game.reset(); 
+            board.start(); 
+            $('#score').text('0'); 
+        }
         
         board = Chessboard('board', {
             draggable: true,
             position: 'start',
-            onDrop: onDrop
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         });
     </script>
 </body>
 </html>
+
