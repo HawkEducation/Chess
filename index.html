@@ -2,35 +2,47 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Chess</title>
+    <title>Chess: Classic</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a1a; color: #eee; text-align: center; padding: 20px; }
         #board { width: 400px; margin: 0 auto; border: 4px solid #333; border-radius: 4px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        .stats { margin: 15px; font-size: 1.5rem; color: #00ffcc; font-weight: bold; }
+        .stats-container { display: flex; justify-content: center; gap: 20px; margin: 15px; }
+        .stat-box { background: #2a2a2a; padding: 10px 20px; border-radius: 8px; border: 1px solid #444; min-width: 100px; }
+        .elo-value { color: #ffcc00; font-size: 1.5rem; display: block; font-weight: bold; }
         .controls { margin-top: 20px; padding: 20px; background: #2a2a2a; display: inline-block; border-radius: 12px; border: 1px solid #444; }
         select, button { padding: 12px; border-radius: 6px; border: none; font-size: 14px; cursor: pointer; background: #444; color: #fff; }
         button { background: #007bff; font-weight: bold; margin-left: 10px; }
         button:hover { background: #0056b3; }
-        label { font-weight: bold; margin-right: 5px; }
+        .btn-reset { background: #dc3545; margin-top: 10px; font-size: 11px; padding: 5px 10px; }
+        .btn-reset:hover { background: #a71d2a; }
+        #status { color: #888; margin-top: 10px; height: 20px; }
     </style>
 </head>
 <body>
 
     <h1>Chess</h1>
-    <div class="stats">Material Score: <span id="score">0</span></div>
+
+    <div class="stats-container">
+        <div class="stat-box">Rating <span id="elo-display" class="elo-value">800</span></div>
+        <div class="stat-box">Advantage <span id="score" class="elo-value">0</span></div>
+    </div>
+
     <div id="board"></div>
+    <div id="status">Ready...</div>
 
     <div class="controls">
-        <label>Rank: </label>
+        <label>Opponent: </label>
         <select id="difficulty">
-            <option value="brainless">🤪 Brainless (100% Random)</option>
-            <option value="blunderfish">🐟 Blunderfish (Tries to Lose)</option>
-            <option value="beginner">🐣 Beginner (High Temp)</option>
-            <option value="intermediate">📊 Intermediate (Mid Temp)</option>
-            <option value="master">🏆 Master (Full Brain)</option>
+            <option value="blunderfish">🐟 Blunderfish (100)</option>
+            <option value="brainless">🤪 Brainless (200)</option>
+            <option value="beginner" selected>🐣 Beginner (800)</option>
+            <option value="intermediate">📊 Intermediate (1200)</option>
+            <option value="master">🏆 Master (1800)</option>
         </select>
         <button onclick="resetGame()">New Game</button>
+        <br>
+        <button class="btn-reset" onclick="hardResetElo()">Reset Rating to 800</button>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
@@ -42,16 +54,31 @@
         var game = new Chess();
         const weights = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 900 };
         
-        const centerBonus = [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 2, 2, 2, 2, 1, 0],
-            [0, 1, 2, 3, 3, 2, 1, 0],
-            [0, 1, 2, 3, 3, 2, 1, 0],
-            [0, 1, 2, 2, 2, 2, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0]
-        ];
+        const botRatings = {
+            'blunderfish': 100,
+            'brainless': 200,
+            'beginner': 800,
+            'intermediate': 1200,
+            'master': 1800
+        };
+
+        // Initialize at 800
+        let userElo = parseInt(localStorage.getItem('chessElo')) || 800;
+        $('#elo-display').text(userElo);
+
+        function updateElo(result) {
+            const botRating = botRatings[$('#difficulty').val()];
+            const K = 32;
+            const expectedScore = 1 / (1 + Math.pow(10, (botRating - userElo) / 400));
+            const newElo = Math.round(userElo + K * (result - expectedScore));
+            
+            const diff = newElo - userElo;
+            userElo = newElo;
+            
+            localStorage.setItem('chessElo', userElo);
+            $('#elo-display').text(userElo);
+            return diff >= 0 ? `(+${diff})` : `(${diff})`;
+        }
 
         function evaluateBoard(currentBoard) {
             let total = 0;
@@ -60,67 +87,80 @@
                     let piece = currentBoard[i][j];
                     if (piece) {
                         let val = weights[piece.type];
-                        let bonus = centerBonus[i][j] * 0.1;
-                        let score = val + bonus;
-                        total += (piece.color === 'b' ? score : -score);
+                        total += (piece.color === 'b' ? val : -val);
                     }
                 }
             }
             return total;
         }
 
+        function checkGameOver() {
+            if (game.game_over()) {
+                let diffText = "";
+                if (game.in_checkmate()) {
+                    if (game.turn() === 'b') {
+                        diffText = updateElo(1);
+                        alert("Victory! " + diffText);
+                    } else {
+                        diffText = updateElo(0);
+                        alert("Defeat! " + diffText);
+                    }
+                } else {
+                    diffText = updateElo(0.5);
+                    alert("Draw! " + diffText);
+                }
+                return true;
+            }
+            return false;
+        }
+
         function makeEngineMove() {
+            if (checkGameOver()) return;
             var moves = game.moves();
-            if (game.game_over()) return alert("Game Over!");
             var rank = $('#difficulty').val();
 
-            if (rank === 'brainless') {
+            if (rank === 'brainless' || (rank !== 'blunderfish' && Math.random() < {'beginner': 0.7, 'intermediate': 0.3, 'master': 0}[rank])) {
                 game.move(moves[Math.floor(Math.random() * moves.length)]);
-            } 
-            else if (rank === 'blunderfish') {
-                let worstMove = null, worstVal = 9999;
+            } else {
+                let isBlunder = rank === 'blunderfish';
+                let bestMove = null, bestVal = isBlunder ? 9999 : -9999;
+                moves.sort(() => Math.random() - 0.5);
                 moves.forEach(m => {
                     game.move(m);
                     let val = evaluateBoard(game.board());
                     game.undo();
-                    if (val < worstVal) { worstVal = val; worstMove = m; }
+                    if (isBlunder ? val < bestVal : val > bestVal) { bestVal = val; bestMove = m; }
                 });
-                game.move(worstMove || moves[0]);
-            } 
-            else {
-                var temps = { 'beginner': 0.75, 'intermediate': 0.4, 'master': 0.0 };
-                if (Math.random() < temps[rank]) {
-                    game.move(moves[Math.floor(Math.random() * moves.length)]);
-                } else {
-                    let bestMove = null, bestVal = -9999;
-                    moves.forEach(m => {
-                        game.move(m);
-                        let val = evaluateBoard(game.board());
-                        game.undo();
-                        if (val > bestVal) { bestVal = val; bestMove = m; }
-                    });
-                    game.move(bestMove || moves[0]);
-                }
+                game.move(bestMove || moves[0]);
             }
+
             board.position(game.fen());
-            $('#score').text((-evaluateBoard(game.board())).toFixed(1));
+            $('#score').text((-evaluateBoard(game.board())).toFixed(0));
+            checkGameOver();
         }
 
         function onDrop(source, target) {
             var move = game.move({ from: source, to: target, promotion: 'q' });
             if (move === null) return 'snapback';
+            $('#status').text("Thinking...");
             window.setTimeout(makeEngineMove, 250);
         }
 
-        // Ensures castling and en passant update the board correctly
-        function onSnapEnd() {
-            board.position(game.fen());
-        }
+        function onSnapEnd() { board.position(game.fen()); }
 
         function resetGame() { 
             game.reset(); 
             board.start(); 
-            $('#score').text('0'); 
+            $('#score').text('0');
+            $('#status').text('Ready...');
+        }
+
+        function hardResetElo() {
+            if(confirm("Are you sure you want to reset your rating to 800?")) {
+                userElo = 800;
+                localStorage.setItem('chessElo', 800);
+                $('#elo-display').text(800);
+            }
         }
         
         board = Chessboard('board', {
@@ -133,4 +173,3 @@
     </script>
 </body>
 </html>
-
