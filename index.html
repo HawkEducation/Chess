@@ -8,8 +8,9 @@
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a1a; color: #eee; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
         #board { width: 90vw; max-width: 420px; border: 5px solid #333; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-        .status-bar { background: #2a2a2a; width: 90vw; max-width: 420px; padding: 12px 0; border-radius: 8px; text-align: center; border: 1px solid #444; margin: 10px 0; }
+        .status-bar { background: #2a2a2a; width: 90vw; max-width: 420px; padding: 12px 0; border-radius: 8px; text-align: center; border: 1px solid #444; margin: 10px 0; min-height: 20px; }
         #status { color: #00ffcc; font-weight: bold; }
+        .checkmate { color: #ff4d4d !important; font-size: 1.2em; }
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 90vw; max-width: 420px; }
         button { padding: 14px 5px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; color: white; transition: 0.2s; }
         .setup-btn { background: #f39c12; grid-column: span 2; font-size: 1rem; }
@@ -19,6 +20,10 @@
         .clear-btn { background: #555; }
         .flip-btn { background: #2ecc71; }
         .reset-btn { background: #333; grid-column: span 2; font-size: 0.75rem; color: #aaa; }
+        
+        /* Highlighting Legal Moves */
+        .highlight-hint { box-shadow: inset 0 0 3px 3px rgba(0, 255, 136, 0.75); }
+        
         .alpha-label { position: absolute; bottom: 1px; right: 2px; font-size: 9px; color: rgba(255,255,255,0.35); pointer-events: none; display: none; }
         .setup-mode-active .alpha-label { display: block; }
     </style>
@@ -29,7 +34,7 @@
         <div id="status">White to move</div>
     </div>
 
-    <div id="board" class="board-container"></div>
+    <div id="board"></div>
 
     <div class="controls">
         <button id="setupModBtn" class="setup-btn" onclick="toggleSetup()">🔧 Enter Setup Mode</button>
@@ -49,82 +54,111 @@
         var isSetupMode = false;
         var startingTurn = 'w';
 
-        function addInternalLabels() {
-            $('.square-55d63').each(function() {
-                const squareId = $(this).attr('data-square');
-                $(this).append(`<div class="alpha-label">${squareId}</div>`);
-            });
+        function removeHighlights() {
+            $('#board .square-55d63').removeClass('highlight-hint');
         }
 
-        function toggleStartingTurn() {
-            startingTurn = (startingTurn === 'w' ? 'b' : 'w');
-            $('#turnBtn').text('🎯 Starting Turn: ' + (startingTurn === 'w' ? 'White' : 'Black'));
+        function highlightSquare(square) {
+            $('#board .square-' + square).addClass('highlight-hint');
+        }
+
+        function onDragStart(source, piece, position, orientation) {
+            if (isSetupMode) return true;
+            if (game.game_over()) return false;
+            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+                (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+                return false;
+            }
+
+            // Show legal moves
+            var moves = game.moves({ square: source, verbose: true });
+            if (moves.length === 0) return;
+            for (var i = 0; i < moves.length; i++) {
+                highlightSquare(moves[i].to);
+            }
+        }
+
+        function onDrop(source, target) {
+            removeHighlights();
+            if (isSetupMode) return; 
+
+            var piece = game.get(source);
+            if (piece && piece.type === 'p') {
+                var isPromotion = (piece.color === 'w' && target[1] === '8') || 
+                                  (piece.color === 'b' && target[1] === '1');
+                if (isPromotion) {
+                    var promo = prompt("Promote to: (q)ueen, (r)ook, (b)ishop, or (k)night?", "q") || "q";
+                    promo = promo.toLowerCase().charAt(0);
+                    if (promo === 'k') promo = 'n';
+                    var move = game.move({ from: source, to: target, promotion: promo });
+                    if (move === null) return 'snapback';
+                    updateStatus();
+                    return;
+                }
+            }
+
+            var move = game.move({ from: source, to: target, promotion: 'q' });
+            if (move === null) return 'snapback';
+            updateStatus();
         }
 
         function toggleSetup() {
             isSetupMode = !isSetupMode;
             if (isSetupMode) {
                 $('#board').addClass('setup-mode-active');
-                $('#setupModBtn').addClass('setup-active').text('✅ Lock & Play Position');
-                $('#status').text('SETUP MODE: Set pieces and turn');
+                $('#setupModBtn').addClass('setup-active').text('✅ Lock & Play');
+                $('#status').text('SETUP MODE');
             } else {
                 var currentFen = board.fen() + ' ' + startingTurn + ' KQkq - 0 1';
-                var check = game.validate_fen(currentFen);
-                if (check.valid) {
-                    game.load(currentFen);
+                if (game.load(currentFen)) {
                     $('#board').removeClass('setup-mode-active');
                     $('#setupModBtn').removeClass('setup-active').text('🔧 Enter Setup Mode');
                     updateStatus();
                 } else {
-                    alert("Invalid setup! (Check for Kings)");
+                    alert("Invalid setup!");
                     isSetupMode = true;
                 }
             }
         }
 
-        function onDrop(source, target) {
-            if (isSetupMode) return; 
-            var move = game.move({ from: source, to: target, promotion: 'q' });
-            if (move === null) return 'snapback';
-            updateStatus();
-        }
-
-        function clearBoard() {
-            board.clear();
-            game.clear();
-            $('#status').text('Board Empty');
-        }
+        function clearBoard() { board.clear(); game.clear(); $('#status').text('Board Empty'); }
+        function toggleStartingTurn() { startingTurn = (startingTurn === 'w' ? 'b' : 'w'); $('#turnBtn').text('🎯 Starting Turn: ' + (startingTurn === 'w' ? 'White' : 'Black')); }
 
         function updateStatus() {
-            if (isSetupMode) return;
-            var moveColor = (game.turn() === 'w') ? "White" : "Black";
-            var statusText = moveColor + " to move";
-            if (game.in_checkmate()) statusText = "CHECKMATE!";
-            else if (game.in_check()) statusText += " (CHECK)";
-            $('#status').text(statusText);
+            var turn = (game.turn() === 'w') ? "White" : "Black";
+            var opponent = (game.turn() === 'w') ? "Black" : "White";
+            var statusEl = $('#status');
+            statusEl.removeClass('checkmate');
+            var statusText = turn + " to move";
+
+            if (game.in_checkmate()) {
+                statusText = "CHECKMATE! " + opponent + " wins!";
+                statusEl.addClass('checkmate');
+            } else if (game.in_check()) {
+                statusText = turn + " is in CHECK!";
+            }
+            statusEl.text(statusText);
         }
 
-        function resetGame() {
-            if(confirm("Start over?")) {
-                game.reset();
-                board.start();
-                startingTurn = 'w';
-                $('#turnBtn').text('🎯 Starting Turn: White');
-                if(isSetupMode) toggleSetup();
-                updateStatus();
-            }
-        }
+        function resetGame() { if(confirm("New game?")) { game.reset(); board.start(); startingTurn = 'w'; if(isSetupMode) toggleSetup(); updateStatus(); } }
 
         board = Chessboard('board', {
             draggable: true,
             dropOffBoard: 'trash',
             sparePieces: true,
             position: 'start',
+            onDragStart: onDragStart,
             onDrop: onDrop,
-            onSnapEnd: function() { board.position(board.fen()); },
+            onSnapEnd: function() { board.position(game.fen()); },
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         });
 
+        function addInternalLabels() {
+            $('.square-55d63').each(function() {
+                const squareId = $(this).attr('data-square');
+                $(this).append(`<div class="alpha-label">${squareId}</div>`);
+            });
+        }
         window.setTimeout(addInternalLabels, 500);
         updateStatus();
     </script>
