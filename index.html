@@ -5,11 +5,46 @@
     <title>Chess: Defensive Reward Bot</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
-        body { background: #1a1a1a; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        #board { width: 400px; max-width: 90vw; border: 5px solid #444; }
-        .info { margin: 15px; font-size: 1.1rem; color: #00ffcc; }
-        #log { width: 400px; height: 100px; background: #000; margin-top: 10px; font-family: monospace; font-size: 12px; overflow-y: scroll; padding: 5px; color: #00ff00; border: 1px solid #333; }
-        button { padding: 10px 15px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; margin: 5px; }
+        body { 
+            background: #1a1a1a; 
+            color: white; 
+            font-family: sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            padding: 20px; 
+        }
+        #board { 
+            width: 400px; 
+            max-width: 90vw; 
+            border: 5px solid #444; 
+        }
+        .info { 
+            margin: 15px; 
+            font-size: 1.1rem; 
+            color: #00ffcc; 
+        }
+        #log { 
+            width: 400px; 
+            height: 150px; 
+            background: #000; 
+            margin-top: 10px; 
+            font-family: monospace; 
+            font-size: 12px; 
+            overflow-y: scroll; 
+            padding: 5px; 
+            color: #00ff00; 
+            border: 1px solid #333; 
+        }
+        button { 
+            padding: 10px 15px; 
+            cursor: pointer; 
+            background: #333; 
+            color: white; 
+            border: 1px solid #555; 
+            border-radius: 4px; 
+            margin: 5px; 
+        }
     </style>
 </head>
 <body>
@@ -22,7 +57,7 @@
         <button onclick="board.flip()">Flip</button>
     </div>
     
-    <div id="log">Bot Logic: Points based on Center, Defense, and Threats...</div>
+    <div id="log">Bot Logic: Points based on Center, Defense, Threats, King Safety, Mobility, and Development...</div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
@@ -33,17 +68,42 @@
         var game = new Chess();
 
         const REWARDS = {
-            CENTER: 40,    // High reward for d4, d5, e4, e5
-            ATTACK: 25,    // Reward for attacking your pieces
-            DEFEND: 20,    // Reward for pieces protecting each other
-            THREAT: -100   // MASSIVE penalty if the bot's piece is being attacked
+            CENTER: 40,
+            ATTACK: 25,
+            DEFEND: 20,
+            THREAT: -100
         };
 
+        function getPieceValue(type) {
+            const vals = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+            return vals[type] || 0;
+        }
+
+        function isAttackedByWhite(square) {
+            const moves = game.moves({ verbose: true });
+            return moves.some(m => m.to === square);
+        }
+
+        // Get squares in front of king for safety check
+        function getFrontSquares(square, color) {
+            const file = square[0].charCodeAt(0);
+            const rank = parseInt(square[1]);
+            let squares = [];
+            if (color === 'b') {
+                if (rank > 1) squares.push(String.fromCharCode(file) + (rank - 1));
+                if (rank > 2) squares.push(String.fromCharCode(file) + (rank - 2));
+            } else {
+                if (rank < 8) squares.push(String.fromCharCode(file) + (rank + 1));
+                if (rank < 7) squares.push(String.fromCharCode(file) + (rank + 2));
+            }
+            return squares;
+        }
+
+        // Upgraded evaluation function
         function evaluateBoard() {
             let score = 0;
             const pieces = game.board();
 
-            // Loop through the 8x8 board
             for (let r = 0; r < 8; r++) {
                 for (let c = 0; c < 8; c++) {
                     const piece = pieces[r][c];
@@ -52,40 +112,51 @@
                     let square = String.fromCharCode(97 + c) + (8 - r);
 
                     if (piece.color === 'b') { // Bot is Black
-                        // 1. Material Value
+                        // 1. Material
                         score += getPieceValue(piece.type);
 
-                        // 2. Center Control
+                        // 2. Center control
                         if (r >= 3 && r <= 4 && c >= 3 && c <= 4) score += REWARDS.CENTER;
 
-                        // 3. Threat Detection (The "Loser" Points)
-                        if (isAttackedByWhite(square)) {
-                            score += REWARDS.THREAT;
+                        // 3. Threat detection
+                        if (isAttackedByWhite(square)) score += REWARDS.THREAT;
+
+                        // 4. King safety
+                        if (piece.type === 'k') {
+                            // Penalize uncastled
+                            if (!game.castling_flags.includes('k') && !game.castling_flags.includes('q')) score -= 50;
+
+                            // Penalize exposed squares in front
+                            getFrontSquares(square, 'b').forEach(sq => {
+                                if (isAttackedByWhite(sq)) score += -30;
+                            });
                         }
+
+                        // 5. Mobility
+                        score += game.moves({ square: square }).length * 5;
+
+                        // 6. Development (minor pieces not on back rank)
+                        if ((piece.type === 'n' || piece.type === 'b') && (r !== 0 && r !== 7)) score += REWARDS.DEFEND;
                     }
                 }
             }
             return score;
         }
 
-        // Helper: Is a specific square being attacked by White?
-        function isAttackedByWhite(square) {
-            // We use chess.js internal logic to see if white can move to this square
-            // We temporarily flip the turn to check attacker coverage
-            let currentTurn = game.turn();
-            let attacked = false;
-            
-            // To check if white attacks a square, it must be white's "turn" in the logic
-            // so we can see their legal moves
-            const moves = game.moves({ verbose: true });
-            attacked = moves.some(m => m.to === square);
-            
-            return attacked;
-        }
+        // Recursive negamax evaluation
+        function evaluateMoveDepth(depth) {
+            if (depth === 0 || game.game_over()) return evaluateBoard();
 
-        function getPieceValue(type) {
-            const vals = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
-            return vals[type] || 0;
+            const moves = game.moves();
+            let bestValue = -Infinity;
+
+            for (let i = 0; i < moves.length; i++) {
+                game.move(moves[i]);
+                let boardValue = -evaluateMoveDepth(depth - 1);
+                game.undo();
+                if (boardValue > bestValue) bestValue = boardValue;
+            }
+            return bestValue;
         }
 
         function makeBotMove() {
@@ -95,10 +166,9 @@
             let bestMove = null;
             let bestValue = -Infinity;
 
-            // Look ahead 1 move for every possibility
             moves.forEach(move => {
                 game.move(move);
-                let boardValue = evaluateBoard();
+                let boardValue = -evaluateMoveDepth(2); // 3 moves ahead
                 game.undo();
 
                 if (boardValue > bestValue) {
