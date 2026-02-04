@@ -21,9 +21,22 @@
         .flip-btn { background: #2ecc71; }
         .reset-btn { background: #333; grid-column: span 2; font-size: 0.75rem; color: #aaa; }
         
-        /* Highlighting Legal Moves */
-        .highlight-hint { box-shadow: inset 0 0 3px 3px rgba(0, 255, 136, 0.75); }
+        /* Subtle Legal Move Dot */
+        .legal-dot {
+            height: 22%; /* Smaller to reduce clutter */
+            width: 22%;
+            background-color: rgba(0, 0, 0, 0.12); /* More transparent */
+            border-radius: 50%;
+            display: block;
+            margin: 39% auto;
+            pointer-events: none;
+        }
         
+        /* Last Move Highlight (Yellow) */
+        .highlight-last { box-shadow: inset 0 0 3px 3px rgba(255, 255, 0, 0.5); }
+        /* Capture Circle */
+        .legal-capture { box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.1); }
+
         .alpha-label { position: absolute; bottom: 1px; right: 2px; font-size: 9px; color: rgba(255,255,255,0.35); pointer-events: none; display: none; }
         .setup-mode-active .alpha-label { display: block; }
     </style>
@@ -55,55 +68,61 @@
         var startingTurn = 'w';
 
         function removeHighlights() {
-            $('#board .square-55d63').removeClass('highlight-hint');
+            $('#board .legal-dot').remove();
+            $('#board .square-55d63').removeClass('legal-capture');
         }
 
-        function highlightSquare(square) {
-            $('#board .square-' + square).addClass('highlight-hint');
+        function removeLastMoveHighlight() {
+            $('#board .square-55d63').removeClass('highlight-last');
         }
 
-        function onDragStart(source, piece, position, orientation) {
+        function highlightLegalMoves(source) {
+            var moves = game.moves({ square: source, verbose: true });
+            moves.forEach(function(move) {
+                var $square = $('#board .square-' + move.to);
+                if (move.flags.includes('c') || move.flags.includes('e')) {
+                    $square.addClass('legal-capture');
+                } else {
+                    $square.append('<div class="legal-dot"></div>');
+                }
+            });
+        }
+
+        function onDragStart(source, piece) {
             if (isSetupMode) return true;
             if (game.game_over()) return false;
             if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-                (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
-                return false;
-            }
-
-            // Show legal moves
-            var moves = game.moves({ square: source, verbose: true });
-            if (moves.length === 0) return;
-            for (var i = 0; i < moves.length; i++) {
-                highlightSquare(moves[i].to);
-            }
+                (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
+            highlightLegalMoves(source);
         }
 
         function onDrop(source, target) {
             removeHighlights();
             if (isSetupMode) return; 
 
+            var moveObj = { from: source, to: target, promotion: 'q' };
+            
+            // Check for promotion
             var piece = game.get(source);
-            if (piece && piece.type === 'p') {
-                var isPromotion = (piece.color === 'w' && target[1] === '8') || 
-                                  (piece.color === 'b' && target[1] === '1');
-                if (isPromotion) {
-                    var promo = prompt("Promote to: (q)ueen, (r)ook, (b)ishop, or (k)night?", "q") || "q";
-                    promo = promo.toLowerCase().charAt(0);
-                    if (promo === 'k') promo = 'n';
-                    var move = game.move({ from: source, to: target, promotion: promo });
-                    if (move === null) return 'snapback';
-                    updateStatus();
-                    return;
-                }
+            if (piece && piece.type === 'p' && ((piece.color === 'w' && target[1] === '8') || (piece.color === 'b' && target[1] === '1'))) {
+                var promo = prompt("Promote to: (q)ueen, (r)ook, (b)ishop, or (k)night?", "q") || "q";
+                moveObj.promotion = promo.toLowerCase().charAt(0) === 'k' ? 'n' : promo.toLowerCase().charAt(0);
             }
 
-            var move = game.move({ from: source, to: target, promotion: 'q' });
+            var move = game.move(moveObj);
             if (move === null) return 'snapback';
+
+            removeLastMoveHighlight();
+            $(`.square-${source}`).addClass('highlight-last');
+            $(`.square-${target}`).addClass('highlight-last');
+            
             updateStatus();
         }
 
         function toggleSetup() {
             isSetupMode = !isSetupMode;
+            removeHighlights();
+            removeLastMoveHighlight();
             if (isSetupMode) {
                 $('#board').addClass('setup-mode-active');
                 $('#setupModBtn').addClass('setup-active').text('✅ Lock & Play');
@@ -121,18 +140,18 @@
             }
         }
 
-        function clearBoard() { board.clear(); game.clear(); $('#status').text('Board Empty'); }
+        function onSnapEnd() { board.position(game.fen()); }
+        function clearBoard() { board.clear(); game.clear(); $('#status').text('Board Empty'); removeLastMoveHighlight(); }
         function toggleStartingTurn() { startingTurn = (startingTurn === 'w' ? 'b' : 'w'); $('#turnBtn').text('🎯 Starting Turn: ' + (startingTurn === 'w' ? 'White' : 'Black')); }
 
         function updateStatus() {
             var turn = (game.turn() === 'w') ? "White" : "Black";
-            var opponent = (game.turn() === 'w') ? "Black" : "White";
             var statusEl = $('#status');
             statusEl.removeClass('checkmate');
             var statusText = turn + " to move";
 
             if (game.in_checkmate()) {
-                statusText = "CHECKMATE! " + opponent + " wins!";
+                statusText = "CHECKMATE! " + (game.turn() === 'w' ? "Black" : "White") + " wins!";
                 statusEl.addClass('checkmate');
             } else if (game.in_check()) {
                 statusText = turn + " is in CHECK!";
@@ -140,7 +159,7 @@
             statusEl.text(statusText);
         }
 
-        function resetGame() { if(confirm("New game?")) { game.reset(); board.start(); startingTurn = 'w'; if(isSetupMode) toggleSetup(); updateStatus(); } }
+        function resetGame() { if(confirm("New game?")) { game.reset(); board.start(); startingTurn = 'w'; removeLastMoveHighlight(); if(isSetupMode) toggleSetup(); updateStatus(); } }
 
         board = Chessboard('board', {
             draggable: true,
@@ -149,7 +168,7 @@
             position: 'start',
             onDragStart: onDragStart,
             onDrop: onDrop,
-            onSnapEnd: function() { board.position(game.fen()); },
+            onSnapEnd: onSnapEnd,
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         });
 
