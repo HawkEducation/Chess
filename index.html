@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a1a; color: #eee; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
-        #board { width: 90vw; max-width: 420px; border: 5px solid #333; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        #board { width: 90vw; max-width: 420px; border: 5px solid #333; box-shadow: 0 10px 25px rgba(0,0,0,0.5); position: relative; }
         .status-bar { background: #2a2a2a; width: 90vw; max-width: 420px; padding: 12px 0; border-radius: 8px; text-align: center; border: 1px solid #444; margin: 10px 0; min-height: 20px; }
         #status { color: #00ffcc; font-weight: bold; }
         .checkmate { color: #ff4d4d !important; font-size: 1.2em; }
@@ -21,20 +21,9 @@
         .flip-btn { background: #2ecc71; }
         .reset-btn { background: #333; grid-column: span 2; font-size: 0.75rem; color: #aaa; }
         
-        /* Subtle Legal Move Dot */
-        .legal-dot {
-            height: 22%; /* Smaller to reduce clutter */
-            width: 22%;
-            background-color: rgba(0, 0, 0, 0.12); /* More transparent */
-            border-radius: 50%;
-            display: block;
-            margin: 39% auto;
-            pointer-events: none;
-        }
-        
-        /* Last Move Highlight (Yellow) */
+        /* Chess.com Style dots */
+        .legal-dot { height: 22%; width: 22%; background-color: rgba(0, 0, 0, 0.12); border-radius: 50%; display: block; margin: 39% auto; pointer-events: none; }
         .highlight-last { box-shadow: inset 0 0 3px 3px rgba(255, 255, 0, 0.5); }
-        /* Capture Circle */
         .legal-capture { box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.1); }
 
         .alpha-label { position: absolute; bottom: 1px; right: 2px; font-size: 9px; color: rgba(255,255,255,0.35); pointer-events: none; display: none; }
@@ -76,7 +65,14 @@
             $('#board .square-55d63').removeClass('highlight-last');
         }
 
-        function highlightLegalMoves(source) {
+        function onDragStart(source, piece, position, orientation) {
+            if (isSetupMode) return true; // Always allow dragging in setup mode
+
+            if (game.game_over()) return false;
+            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+                (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
+
+            // Highlight legal moves
             var moves = game.moves({ square: source, verbose: true });
             moves.forEach(function(move) {
                 var $square = $('#board .square-' + move.to);
@@ -88,21 +84,16 @@
             });
         }
 
-        function onDragStart(source, piece) {
-            if (isSetupMode) return true;
-            if (game.game_over()) return false;
-            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-                (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
-            highlightLegalMoves(source);
-        }
-
         function onDrop(source, target) {
             removeHighlights();
-            if (isSetupMode) return; 
+            
+            if (isSetupMode) {
+                // In setup mode, we don't update the 'game' engine yet.
+                // We just let the board handle the visual piece placement.
+                return; 
+            }
 
             var moveObj = { from: source, to: target, promotion: 'q' };
-            
-            // Check for promotion
             var piece = game.get(source);
             if (piece && piece.type === 'p' && ((piece.color === 'w' && target[1] === '8') || (piece.color === 'b' && target[1] === '1'))) {
                 var promo = prompt("Promote to: (q)ueen, (r)ook, (b)ishop, or (k)night?", "q") || "q";
@@ -115,7 +106,6 @@
             removeLastMoveHighlight();
             $(`.square-${source}`).addClass('highlight-last');
             $(`.square-${target}`).addClass('highlight-last');
-            
             updateStatus();
         }
 
@@ -128,21 +118,32 @@
                 $('#setupModBtn').addClass('setup-active').text('✅ Lock & Play');
                 $('#status').text('SETUP MODE');
             } else {
+                // Sync the engine with the board's current visual state
                 var currentFen = board.fen() + ' ' + startingTurn + ' KQkq - 0 1';
                 if (game.load(currentFen)) {
                     $('#board').removeClass('setup-mode-active');
                     $('#setupModBtn').removeClass('setup-active').text('🔧 Enter Setup Mode');
                     updateStatus();
                 } else {
-                    alert("Invalid setup!");
+                    alert("Invalid setup! (Check if both Kings are on the board)");
                     isSetupMode = true;
                 }
             }
         }
 
-        function onSnapEnd() { board.position(game.fen()); }
+        function onSnapEnd() {
+            // Only sync board with engine if NOT in setup mode
+            if (!isSetupMode) {
+                board.position(game.fen());
+            }
+        }
+
         function clearBoard() { board.clear(); game.clear(); $('#status').text('Board Empty'); removeLastMoveHighlight(); }
-        function toggleStartingTurn() { startingTurn = (startingTurn === 'w' ? 'b' : 'w'); $('#turnBtn').text('🎯 Starting Turn: ' + (startingTurn === 'w' ? 'White' : 'Black')); }
+        
+        function toggleStartingTurn() { 
+            startingTurn = (startingTurn === 'w' ? 'b' : 'w'); 
+            $('#turnBtn').text('🎯 Starting Turn: ' + (startingTurn === 'w' ? 'White' : 'Black')); 
+        }
 
         function updateStatus() {
             var turn = (game.turn() === 'w') ? "White" : "Black";
@@ -159,7 +160,16 @@
             statusEl.text(statusText);
         }
 
-        function resetGame() { if(confirm("New game?")) { game.reset(); board.start(); startingTurn = 'w'; removeLastMoveHighlight(); if(isSetupMode) toggleSetup(); updateStatus(); } }
+        function resetGame() { 
+            if(confirm("New game?")) { 
+                game.reset(); 
+                board.start(); 
+                startingTurn = 'w'; 
+                removeLastMoveHighlight(); 
+                if(isSetupMode) toggleSetup(); 
+                updateStatus(); 
+            } 
+        }
 
         board = Chessboard('board', {
             draggable: true,
