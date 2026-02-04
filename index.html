@@ -3,82 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Staunton Chess</title>
+    <title>Chess</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
-        body { 
-            font-family: 'Segoe UI', system-ui, sans-serif; 
-            background: #1a1a1a; 
-            color: #eee; 
-            margin: 0;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-        }
-        .header { text-align: center; margin-bottom: 15px; width: 100%; }
-        .player-display { font-size: clamp(1.1rem, 4vw, 1.5rem); color: #ffcc00; font-weight: bold; }
-        
-        /* Responsive Board Container */
-        #board { 
-            width: 95vw; 
-            max-width: 480px; /* Perfect for desktop, but shrinks for mobile */
-            border: 4px solid #333; 
-            border-radius: 4px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
-        }
-
-        .status-bar {
-            background: #2a2a2a;
-            width: 95vw;
-            max-width: 480px;
-            padding: 12px 0;
-            margin-top: 15px;
-            border-radius: 8px;
-            border: 1px solid #444;
-            text-align: center;
-        }
-        #status { color: #00ffcc; font-weight: bold; font-size: 1.1rem; }
-
-        .controls { 
-            margin-top: 15px; 
-            display: flex; 
-            gap: 10px; 
-            width: 95vw; 
-            max-width: 480px; 
-        }
-        button { 
-            flex: 1;
-            padding: 15px 5px; 
-            font-size: 1rem; 
-            cursor: pointer; 
-            border-radius: 8px; 
-            border: none; 
-            font-weight: bold;
-            color: white;
-            transition: opacity 0.2s;
-        }
-        button:active { opacity: 0.7; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a1a; color: #eee; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
+        #board { width: 90vw; max-width: 420px; border: 5px solid #333; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .status-bar { background: #2a2a2a; width: 90vw; max-width: 420px; padding: 12px 0; border-radius: 8px; text-align: center; border: 1px solid #444; margin: 10px 0; }
+        #status { color: #00ffcc; font-weight: bold; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 90vw; max-width: 420px; }
+        button { padding: 14px 5px; cursor: pointer; border-radius: 6px; border: none; font-weight: bold; color: white; transition: 0.2s; }
+        .setup-btn { background: #f39c12; grid-column: span 2; font-size: 1rem; }
+        .setup-active { background: #e74c3c; box-shadow: 0 0 15px #e74c3c; }
+        .turn-btn { background: #3498db; display: none; grid-column: span 2; }
+        .setup-mode-active .turn-btn { display: block; }
+        .clear-btn { background: #555; }
         .flip-btn { background: #2ecc71; }
-        .reset-btn { background: #444; }
+        .reset-btn { background: #333; grid-column: span 2; font-size: 0.75rem; color: #aaa; }
+        .alpha-label { position: absolute; bottom: 1px; right: 2px; font-size: 9px; color: rgba(255,255,255,0.35); pointer-events: none; display: none; }
+        .setup-mode-active .alpha-label { display: block; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <div class="player-display"><span id="p1-label">White</span> vs <span id="p2-label">Black</span></div>
-    </div>
-
-    <div id="board"></div>
-
     <div class="status-bar">
-        <span id="status">White to move</span>
+        <div id="status">White to move</div>
     </div>
+
+    <div id="board" class="board-container"></div>
 
     <div class="controls">
-        <button class="flip-btn" onclick="board.flip()">🔄 Flip Board</button>
-        <button class="reset-btn" onclick="resetGame()">New Game</button>
+        <button id="setupModBtn" class="setup-btn" onclick="toggleSetup()">🔧 Enter Setup Mode</button>
+        <button id="turnBtn" class="turn-btn" onclick="toggleStartingTurn()">🎯 Starting Turn: White</button>
+        <button class="clear-btn" onclick="clearBoard()">🗑️ Clear</button>
+        <button class="flip-btn" onclick="board.flip()">🔄 Flip</button>
+        <button class="reset-btn" onclick="resetGame()">RESET TO STARTING POSITION</button>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
@@ -88,54 +46,86 @@
     <script>
         var board = null;
         var game = new Chess();
-        
-        // Use a simple prompt that works on both mobile and desktop
-        var p1 = prompt("White's Name:", "White") || "White";
-        var p2 = prompt("Black's Name:", "Black") || "Black";
-        $('#p1-label').text(p1);
-        $('#p2-label').text(p2);
+        var isSetupMode = false;
+        var startingTurn = 'w';
+
+        function addInternalLabels() {
+            $('.square-55d63').each(function() {
+                const squareId = $(this).attr('data-square');
+                $(this).append(`<div class="alpha-label">${squareId}</div>`);
+            });
+        }
+
+        function toggleStartingTurn() {
+            startingTurn = (startingTurn === 'w' ? 'b' : 'w');
+            $('#turnBtn').text('🎯 Starting Turn: ' + (startingTurn === 'w' ? 'White' : 'Black'));
+        }
+
+        function toggleSetup() {
+            isSetupMode = !isSetupMode;
+            if (isSetupMode) {
+                $('#board').addClass('setup-mode-active');
+                $('#setupModBtn').addClass('setup-active').text('✅ Lock & Play Position');
+                $('#status').text('SETUP MODE: Set pieces and turn');
+            } else {
+                var currentFen = board.fen() + ' ' + startingTurn + ' KQkq - 0 1';
+                var check = game.validate_fen(currentFen);
+                if (check.valid) {
+                    game.load(currentFen);
+                    $('#board').removeClass('setup-mode-active');
+                    $('#setupModBtn').removeClass('setup-active').text('🔧 Enter Setup Mode');
+                    updateStatus();
+                } else {
+                    alert("Invalid setup! (Check for Kings)");
+                    isSetupMode = true;
+                }
+            }
+        }
 
         function onDrop(source, target) {
+            if (isSetupMode) return; 
             var move = game.move({ from: source, to: target, promotion: 'q' });
             if (move === null) return 'snapback';
             updateStatus();
         }
 
-        function updateStatus() {
-            var moveColor = (game.turn() === 'b') ? p2 : p1;
-            var statusText = moveColor + " to move";
+        function clearBoard() {
+            board.clear();
+            game.clear();
+            $('#status').text('Board Empty');
+        }
 
-            if (game.in_checkmate()) {
-                statusText = "CHECKMATE! " + (game.turn() === 'w' ? p2 : p1) + " wins!";
-                alert(statusText);
-            } else if (game.in_draw()) {
-                statusText = "DRAW!";
-                alert(statusText);
-            } else if (game.in_check()) {
-                statusText += " (CHECK)";
-            }
-            
+        function updateStatus() {
+            if (isSetupMode) return;
+            var moveColor = (game.turn() === 'w') ? "White" : "Black";
+            var statusText = moveColor + " to move";
+            if (game.in_checkmate()) statusText = "CHECKMATE!";
+            else if (game.in_check()) statusText += " (CHECK)";
             $('#status').text(statusText);
         }
 
         function resetGame() {
-            if(confirm("New game?")) {
+            if(confirm("Start over?")) {
                 game.reset();
                 board.start();
-                if(board.orientation() === 'black') board.flip();
+                startingTurn = 'w';
+                $('#turnBtn').text('🎯 Starting Turn: White');
+                if(isSetupMode) toggleSetup();
                 updateStatus();
             }
         }
 
         board = Chessboard('board', {
             draggable: true,
-            dropOffBoard: 'snapback',
+            dropOffBoard: 'trash',
+            sparePieces: true,
             position: 'start',
             onDrop: onDrop,
-            onSnapEnd: function() { board.position(game.fen()); },
+            onSnapEnd: function() { board.position(board.fen()); },
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         });
 
+        window.setTimeout(addInternalLabels, 500);
         updateStatus();
     </script>
 </body>
